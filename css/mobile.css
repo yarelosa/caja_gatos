@@ -1,0 +1,51 @@
+@media (max-width: 600px) {
+
+  .products{
+    margin-top: -250px;
+    display: grid;
+    height: auto;
+  }
+
+  .products .product-box {
+    margin-top: 0;
+  }
+
+  .details{
+    flex-wrap: wrap;
+  }
+
+  .mention-list{
+    flex-wrap: wrap;
+  }
+
+  .mention-box{
+    width: 120px;
+  }
+}
+
+/* reglas del grid */
+
+@media (max-width: 900px) {
+  /* Reglas de producto */
+  .products-details{
+    width: 70%;
+    margin: auto;
+    overflow: hidden;
+  }
+
+  .product-image{
+    width: 60%;
+  }
+
+  /* Reglas de venta */
+  .module-pay{
+    width: 70%;
+    margin: auto;
+  }
+  .box{
+    width: 50%;
+    margin: auto;
+    overflow: hidden;
+  }
+
+}
